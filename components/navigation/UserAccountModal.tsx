@@ -12,7 +12,6 @@ import {
   ShieldCheck, 
   Check, 
   Sparkles, 
-  CloudCheck, 
   Flame 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
