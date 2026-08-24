@@ -1,0 +1,17 @@
+{
+  "name": "IRONPULSE - Musculation & Hyrox 2027",
+  "short_name": "IRONPULSE",
+  "description": "Suivi musculation avec surcharge progressive, calcul métabolisme BMR/TDEE et préparation Hyrox 2027.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
