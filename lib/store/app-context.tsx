@@ -188,7 +188,116 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Supabase Auth listener if configured
+  // Full bi-directional Supabase synchronization
+  const syncAllFromSupabase = async (activeUser: any, client: any) => {
+    if (!activeUser || !client) return;
+
+    try {
+      // 1. Profile
+      const { data: dbProfile } = await client.from('profiles').select('*').eq('id', activeUser.id).single();
+      if (dbProfile) {
+        setProfile((prev) => ({ ...prev, ...dbProfile, email: activeUser.email || prev.email }));
+      }
+
+      // 2. Workouts & Sets
+      const { data: dbWorkouts } = await client
+        .from('workouts')
+        .select('*, workout_sets(*)')
+        .eq('user_id', activeUser.id)
+        .order('started_at', { ascending: false });
+
+      if (dbWorkouts && dbWorkouts.length > 0) {
+        const parsedWorkouts: Workout[] = dbWorkouts.map((w: any) => ({
+          id: w.id,
+          user_id: w.user_id,
+          name: w.name,
+          split_type: w.split_type,
+          started_at: w.started_at,
+          completed_at: w.completed_at,
+          duration_seconds: w.duration_seconds || 0,
+          notes: w.notes,
+          rating: w.rating,
+          total_volume_kg: Number(w.total_volume_kg) || 0,
+          sets: (w.workout_sets || []).map((s: any) => ({
+            id: s.id,
+            workout_id: s.workout_id,
+            exercise_id: s.exercise_id,
+            exercise_name: s.exercise_name || 'Exercice',
+            set_order: s.set_order,
+            weight_kg: Number(s.weight_kg),
+            reps: s.reps,
+            rpe: s.rpe ? Number(s.rpe) : undefined,
+            rest_seconds: s.rest_seconds,
+            is_warmup: s.is_warmup,
+            is_completed: s.is_completed,
+            notes: s.notes,
+          })),
+        }));
+        setWorkouts(parsedWorkouts);
+      }
+
+      // 3. Weight Logs
+      const { data: dbWeights } = await client
+        .from('weight_logs')
+        .select('*')
+        .eq('user_id', activeUser.id)
+        .order('logged_date', { ascending: false });
+
+      if (dbWeights && dbWeights.length > 0) {
+        setWeightLogs(dbWeights.map((w: any) => ({
+          id: w.id,
+          user_id: w.user_id,
+          logged_date: w.logged_date,
+          weight_kg: Number(w.weight_kg),
+          body_fat_pct: w.body_fat_pct ? Number(w.body_fat_pct) : undefined,
+          notes: w.notes,
+        })));
+      }
+
+      // 4. Hyrox Logs
+      const { data: dbHyrox } = await client
+        .from('hyrox_logs')
+        .select('*')
+        .eq('user_id', activeUser.id)
+        .order('logged_date', { ascending: false });
+
+      if (dbHyrox && dbHyrox.length > 0) {
+        setHyroxLogs(dbHyrox.map((h: any) => ({
+          id: h.id,
+          user_id: h.user_id,
+          logged_date: h.logged_date,
+          station_type: h.station_type,
+          time_seconds: h.time_seconds,
+          distance_meters: h.distance_meters,
+          weight_kg: h.weight_kg ? Number(h.weight_kg) : undefined,
+          reps: h.reps,
+          average_pace: h.average_pace,
+          heart_rate_avg: h.heart_rate_avg,
+          rpe: h.rpe ? Number(h.rpe) : undefined,
+          notes: h.notes,
+          is_personal_record: h.is_personal_record,
+        })));
+      }
+
+      // 5. Exercises
+      const { data: dbExercises } = await client.from('exercises').select('*').or(`user_id.is.null,user_id.eq.${activeUser.id}`);
+      if (dbExercises && dbExercises.length > 0) {
+        setExercises(dbExercises.map((e: any) => ({
+          id: e.id,
+          user_id: e.user_id,
+          name: e.name,
+          muscle_group: e.muscle_group,
+          equipment: e.equipment,
+          description: e.description,
+          is_custom: e.is_custom,
+        })));
+      }
+    } catch (err) {
+      console.error('Error syncing Supabase data:', err);
+    }
+  };
+
+  // Supabase Auth listener
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -196,18 +305,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) {
         setUser(data.user);
-        // Sync profile if available
-        supabase.from('profiles').select('*').eq('id', data.user.id).single().then(({ data: dbProfile }) => {
-          if (dbProfile) {
-            setProfile((prev) => ({ ...prev, ...dbProfile, email: data.user.email || prev.email }));
-          }
-        });
+        syncAllFromSupabase(data.user, supabase);
       }
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setUser(session.user);
+        syncAllFromSupabase(session.user, supabase);
       } else {
         setUser(null);
       }
@@ -504,18 +609,74 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Sync to Supabase
     const supabase = getSupabaseBrowserClient();
     if (supabase && user) {
-      supabase.from('workouts').insert({
-        id: finishedWorkout.id.startsWith('wk-') ? undefined : finishedWorkout.id,
-        user_id: user.id,
-        name: finishedWorkout.name,
-        split_type: finishedWorkout.split_type,
-        started_at: finishedWorkout.started_at,
-        completed_at: finishedWorkout.completed_at,
-        duration_seconds: finishedWorkout.duration_seconds,
-        notes: finishedWorkout.notes,
-        rating: finishedWorkout.rating,
-        total_volume_kg: finishedWorkout.total_volume_kg,
-      });
+      (async () => {
+        try {
+          const { data: insertedWorkout, error: wError } = await supabase
+            .from('workouts')
+            .insert({
+              user_id: user.id,
+              name: finishedWorkout.name,
+              split_type: finishedWorkout.split_type,
+              started_at: finishedWorkout.started_at,
+              completed_at: finishedWorkout.completed_at,
+              duration_seconds: finishedWorkout.duration_seconds,
+              notes: finishedWorkout.notes,
+              rating: finishedWorkout.rating,
+              total_volume_kg: finishedWorkout.total_volume_kg,
+            })
+            .select()
+            .single();
+
+          if (insertedWorkout) {
+            const dbWorkoutId = insertedWorkout.id;
+            // Insert workout sets
+            for (const s of finishedWorkout.sets) {
+              if (s.is_completed) {
+                // Ensure exercise exists in DB or get matching id
+                let dbExerciseId = s.exercise_id;
+                if (s.exercise_id.startsWith('ex-')) {
+                  const { data: foundEx } = await supabase
+                    .from('exercises')
+                    .select('id')
+                    .eq('name', s.exercise_name)
+                    .maybeSingle();
+
+                  if (foundEx) {
+                    dbExerciseId = foundEx.id;
+                  } else {
+                    const { data: createdEx } = await supabase
+                      .from('exercises')
+                      .insert({
+                        name: s.exercise_name || 'Exercice',
+                        muscle_group: s.muscle_group || 'full_body',
+                        is_custom: false,
+                      })
+                      .select('id')
+                      .single();
+                    if (createdEx) dbExerciseId = createdEx.id;
+                  }
+                }
+
+                await supabase.from('workout_sets').insert({
+                  workout_id: dbWorkoutId,
+                  exercise_id: dbExerciseId,
+                  user_id: user.id,
+                  set_order: s.set_order,
+                  weight_kg: s.weight_kg,
+                  reps: s.reps,
+                  rpe: s.rpe,
+                  rest_seconds: s.rest_seconds,
+                  is_warmup: s.is_warmup,
+                  is_completed: s.is_completed,
+                  notes: s.notes,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error saving workout to Supabase:', err);
+        }
+      })();
     }
   };
 
