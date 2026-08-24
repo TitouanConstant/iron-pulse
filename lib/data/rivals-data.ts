@@ -105,12 +105,19 @@ export const DEFAULT_RIVALS: RivalAthlete[] = [
   },
 ];
 
-export function generateAthleteCode(name: string): string {
+export function generateAthleteCode(name: string, seed?: string): string {
   const cleanName = name
     .trim()
     .toUpperCase()
     .replace(/[^A-Z]/g, '')
-    .slice(0, 4);
-  const randomDigits = Math.floor(1000 + Math.random() * 9000);
-  return `PULSE-${cleanName || 'ATHL'}${randomDigits}`;
+    .slice(0, 4) || 'ATHL';
+
+  let hash = 0;
+  const str = seed || (name + (typeof window !== 'undefined' ? window.location.host : 'ironpulse'));
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const digits = (Math.abs(hash) % 9000) + 1000;
+  return `PULSE-${cleanName}${digits}`;
 }

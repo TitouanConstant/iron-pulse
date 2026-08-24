@@ -213,9 +213,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // 1. Profile
-      const { data: dbProfile } = await client.from('profiles').select('*').eq('id', activeUser.id).single();
+      const userFullName = activeUser.user_metadata?.full_name || activeUser.user_metadata?.name || activeUser.email?.split('@')[0] || 'Athlète';
+      const { data: dbProfile } = await client.from('profiles').select('*').eq('id', activeUser.id).maybeSingle();
+
+      let finalAthleteCode = dbProfile?.athlete_code;
+      if (!finalAthleteCode || (finalAthleteCode === 'PULSE-TITOU27' && !userFullName.toLowerCase().includes('titou'))) {
+        finalAthleteCode = generateAthleteCode(userFullName, activeUser.id);
+        // Persist unique athlete code to Supabase profile
+        await client.from('profiles').upsert({
+          id: activeUser.id,
+          email: activeUser.email,
+          full_name: userFullName,
+          athlete_code: finalAthleteCode,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
       if (dbProfile) {
-        setProfile((prev) => ({ ...prev, ...dbProfile, email: activeUser.email || prev.email }));
+        setProfile((prev) => ({
+          ...prev,
+          ...dbProfile,
+          id: activeUser.id,
+          full_name: dbProfile.full_name || userFullName,
+          email: activeUser.email || prev.email,
+          athlete_code: finalAthleteCode,
+        }));
+      } else {
+        setProfile((prev) => ({
+          ...prev,
+          id: activeUser.id,
+          full_name: userFullName,
+          email: activeUser.email || prev.email,
+          athlete_code: finalAthleteCode,
+        }));
       }
 
       // 2. Workouts & Sets
@@ -922,7 +952,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ==========================================
   // RIVALRY & FRIEND CODE COMPARISON
   // ==========================================
-  const athleteCode = profile.athlete_code || 'PULSE-TITOU27';
+  const athleteCode = profile.athlete_code || generateAthleteCode(profile.full_name, profile.id);
 
   const setAthleteCode = async (code: string) => {
     const formatted = code.trim().toUpperCase();
