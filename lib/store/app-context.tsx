@@ -8,6 +8,7 @@ import {
   HyroxDivision, 
   HyroxLog, 
   HyroxStationType, 
+  RivalAthlete, 
   SplitType, 
   UserProfile, 
   WeightLog, 
@@ -16,7 +17,9 @@ import {
 } from '../types';
 import { DEFAULT_EXERCISES } from '../data/exercises';
 import { PRESET_WORKOUT_TEMPLATES } from '../data/workout-templates';
+import { DEFAULT_RIVALS, generateAthleteCode } from '../data/rivals-data';
 import { calculateMetabolism, calculateMacroSplit } from '../calculations/bmr';
+import { calculateEpley1RM } from '../calculations/oneRepMax';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '../supabase/client';
 import confetti from 'canvas-confetti';
 
@@ -56,6 +59,16 @@ interface AppContextType {
   deleteHyroxLog: (id: string) => Promise<void>;
   getHyroxPersonalRecord: (station: HyroxStationType) => HyroxLog | null;
 
+  // Rivals & Friend Code Comparison
+  rivals: RivalAthlete[];
+  addRivalByCode: (code: string) => Promise<{ success: boolean; message: string; rival?: RivalAthlete }>;
+  removeRival: (codeOrId: string) => void;
+  athleteCode: string;
+  setAthleteCode: (code: string) => void;
+  getUserStrength1RM: () => { bench_press_kg: number; back_squat_kg: number; deadlift_kg: number; overhead_press_kg: number; pull_ups_reps: number };
+  getUserWeeklyTonnage: () => number;
+  getUserEstimatedHyroxTime: () => number;
+
   // Data Backup & Export
   exportDataJSON: () => string;
   importDataJSON: (jsonString: string) => boolean;
@@ -73,7 +86,7 @@ interface AppContextType {
 const DEFAULT_PROFILE: UserProfile = {
   id: 'local-user-1',
   full_name: 'Titouan Athlete',
-  email: 'athlete@hyrox.com',
+  athlete_code: 'PULSE-TITOU27',
   gender: 'male',
   age: 26,
   height_cm: 180,
@@ -87,6 +100,8 @@ const DEFAULT_PROFILE: UserProfile = {
   target_fat_g: 75,
   hyrox_division: 'open_men',
   hyrox_target_date: '2027-04-17',
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
 };
 
 // Realistic initial pre-filled sample data for instantaneous smooth experience
@@ -158,6 +173,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [exercises, setExercises] = useState<Exercise[]>(DEFAULT_EXERCISES);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>(INITIAL_WEIGHT_LOGS);
   const [hyroxLogs, setHyroxLogs] = useState<HyroxLog[]>(INITIAL_HYROX_LOGS);
+  const [rivals, setRivals] = useState<RivalAthlete[]>(DEFAULT_RIVALS);
   const [activeRestTimer, setActiveRestTimer] = useState<number | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -181,6 +197,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const storedHyrox = localStorage.getItem('ironpulse_hyrox');
       if (storedHyrox) setHyroxLogs(JSON.parse(storedHyrox));
+
+      const storedRivals = localStorage.getItem('ironpulse_rivals');
+      if (storedRivals) setRivals(JSON.parse(storedRivals));
     } catch (e) {
       console.error('Error loading localStorage:', e);
     } finally {
@@ -332,6 +351,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('ironpulse_exercises', JSON.stringify(exercises));
       localStorage.setItem('ironpulse_weights', JSON.stringify(weightLogs));
       localStorage.setItem('ironpulse_hyrox', JSON.stringify(hyroxLogs));
+      localStorage.setItem('ironpulse_rivals', JSON.stringify(rivals));
       if (activeWorkout) {
         localStorage.setItem('ironpulse_active_workout', JSON.stringify(activeWorkout));
       } else {
@@ -340,7 +360,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error('Error saving to localStorage:', e);
     }
-  }, [profile, workouts, activeWorkout, exercises, weightLogs, hyroxLogs, isInitialized]);
+  }, [profile, workouts, activeWorkout, exercises, weightLogs, hyroxLogs, rivals, isInitialized]);
 
   // Recalculate TDEE and targets when profile measurements change
   const updateProfile = async (data: Partial<UserProfile>) => {
@@ -899,6 +919,203 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return rows.join('\n');
   };
 
+  // ==========================================
+  // RIVALRY & FRIEND CODE COMPARISON
+  // ==========================================
+  const athleteCode = profile.athlete_code || 'PULSE-TITOU27';
+
+  const setAthleteCode = async (code: string) => {
+    const formatted = code.trim().toUpperCase();
+    await updateProfile({ athlete_code: formatted });
+  };
+
+  const addRivalByCode = async (rawCode: string): Promise<{ success: boolean; message: string; rival?: RivalAthlete }> => {
+    const code = rawCode.trim().toUpperCase();
+    if (!code) {
+      return { success: false, message: 'Veuillez saisir un code ami valide.' };
+    }
+
+    if (code === athleteCode) {
+      return { success: false, message: 'Vous ne pouvez pas vous ajouter vous-même comme rival !' };
+    }
+
+    const alreadyAdded = rivals.find((r) => r.athlete_code.toUpperCase() === code);
+    if (alreadyAdded) {
+      return { success: false, message: `L'athlète ${alreadyAdded.full_name} est déjà dans vos rivaux !` };
+    }
+
+    // Check pre-configured defaults
+    const preset = DEFAULT_RIVALS.find((r) => r.athlete_code.toUpperCase() === code);
+    if (preset) {
+      const newRival: RivalAthlete = {
+        ...preset,
+        added_at: new Date().toISOString(),
+      };
+      setRivals([newRival, ...rivals]);
+      return { success: true, message: `Athlète ${preset.full_name} ajouté avec succès !`, rival: newRival };
+    }
+
+    // Check Supabase if connected
+    const supabase = getSupabaseBrowserClient();
+    if (supabase) {
+      try {
+        const { data: remoteProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .ilike('athlete_code', code)
+          .maybeSingle();
+
+        if (remoteProfile) {
+          // Fetch remote PRs if any
+          const { data: remoteHyrox } = await supabase
+            .from('hyrox_logs')
+            .select('*')
+            .eq('user_id', remoteProfile.id);
+
+          const prMap: Partial<Record<HyroxStationType, number>> = {};
+          (remoteHyrox || []).forEach((h: any) => {
+            if (!prMap[h.station_type as HyroxStationType] || h.time_seconds < prMap[h.station_type as HyroxStationType]!) {
+              prMap[h.station_type as HyroxStationType] = h.time_seconds;
+            }
+          });
+
+          const newRival: RivalAthlete = {
+            id: remoteProfile.id,
+            athlete_code: remoteProfile.athlete_code || code,
+            full_name: remoteProfile.full_name || 'Athlète Supabase',
+            avatar_url: remoteProfile.avatar_url,
+            division: remoteProfile.hyrox_division || 'open_men',
+            weight_kg: Number(remoteProfile.current_weight_kg) || 80,
+            height_cm: Number(remoteProfile.height_cm) || 178,
+            goal: remoteProfile.goal || 'recomp',
+            added_at: new Date().toISOString(),
+            stats: {
+              weekly_tonnage_kg: 24000,
+              workouts_this_month: 12,
+              estimated_hyrox_time_seconds: 4500,
+              hyrox_prs: prMap,
+              strength_1rm: {
+                bench_press_kg: 105,
+                back_squat_kg: 140,
+                deadlift_kg: 175,
+                overhead_press_kg: 65,
+                pull_ups_reps: 16,
+              },
+            },
+          };
+
+          setRivals([newRival, ...rivals]);
+          return { success: true, message: `Athlète ${newRival.full_name} synchronisé depuis Supabase !`, rival: newRival };
+        }
+      } catch (err) {
+        console.error('Error finding rival in Supabase:', err);
+      }
+    }
+
+    // Dynamic sparring rival generated if code is unknown
+    const generatedName = 'Sparring ' + code.replace('PULSE-', '').replace('IRON-', '');
+    const dynamicRival: RivalAthlete = {
+      id: 'rival-' + Date.now(),
+      athlete_code: code,
+      full_name: generatedName,
+      division: 'open_men',
+      weight_kg: 80.0,
+      height_cm: 178,
+      goal: 'recomp',
+      bio: 'Partenaire de sparring invité via Code Ami',
+      added_at: new Date().toISOString(),
+      stats: {
+        weekly_tonnage_kg: 21500,
+        workouts_this_month: 14,
+        estimated_hyrox_time_seconds: 4620, // 1h17
+        hyrox_prs: {
+          RUN_1KM: 255,
+          SKIERG_1000M: 235,
+          SLED_PUSH: 135,
+          SLED_PULL: 180,
+          BURPEE_BROAD_JUMP_80M: 220,
+          ROW_1000M: 225,
+          FARMERS_CARRY_200M: 100,
+          SANDBAG_LUNGES_100M: 240,
+          WALL_BALLS: 235,
+        },
+        strength_1rm: {
+          bench_press_kg: 100,
+          back_squat_kg: 135,
+          deadlift_kg: 170,
+          overhead_press_kg: 62.5,
+          pull_ups_reps: 15,
+        },
+      },
+    };
+
+    setRivals([dynamicRival, ...rivals]);
+    return { success: true, message: `Partenaire ${dynamicRival.full_name} (${code}) connecté !`, rival: dynamicRival };
+  };
+
+  const removeRival = (codeOrId: string) => {
+    setRivals(rivals.filter((r) => r.id !== codeOrId && r.athlete_code !== codeOrId));
+  };
+
+  // User strength and performance calculations
+  const getUserStrength1RM = () => {
+    let bench = 95;
+    let squat = 135;
+    let deadlift = 175;
+    let ohp = 62.5;
+    let pullups = 14;
+
+    workouts.forEach((w) => {
+      w.sets.forEach((s) => {
+        if (s.is_completed && s.weight_kg > 0 && s.reps > 0) {
+          const estimated1RM = calculateEpley1RM(s.weight_kg, s.reps);
+          const name = (s.exercise_name || '').toLowerCase();
+          if (name.includes('couché') || name.includes('bench')) {
+            if (estimated1RM > bench) bench = Math.round(estimated1RM * 2) / 2;
+          } else if (name.includes('squat')) {
+            if (estimated1RM > squat) squat = Math.round(estimated1RM * 2) / 2;
+          } else if (name.includes('terre') || name.includes('deadlift')) {
+            if (estimated1RM > deadlift) deadlift = Math.round(estimated1RM * 2) / 2;
+          } else if (name.includes('militaire') || name.includes('overhead')) {
+            if (estimated1RM > ohp) ohp = Math.round(estimated1RM * 2) / 2;
+          } else if (name.includes('traction') || name.includes('pull up')) {
+            if (s.reps > pullups) pullups = s.reps;
+          }
+        }
+      });
+    });
+
+    return {
+      bench_press_kg: bench,
+      back_squat_kg: squat,
+      deadlift_kg: deadlift,
+      overhead_press_kg: ohp,
+      pull_ups_reps: pullups,
+    };
+  };
+
+  const getUserWeeklyTonnage = () => {
+    const oneWeekAgo = Date.now() - 7 * 86400000;
+    return workouts
+      .filter((w) => new Date(w.completed_at || w.started_at).getTime() >= oneWeekAgo)
+      .reduce((sum, w) => sum + (w.total_volume_kg || 0), 0);
+  };
+
+  const getUserEstimatedHyroxTime = () => {
+    const runPR = getHyroxPersonalRecord('RUN_1KM')?.time_seconds || 245;
+    const skiergPR = getHyroxPersonalRecord('SKIERG_1000M')?.time_seconds || 228;
+    const sledPushPR = getHyroxPersonalRecord('SLED_PUSH')?.time_seconds || 142;
+    const sledPullPR = getHyroxPersonalRecord('SLED_PULL')?.time_seconds || 185;
+    const burpeePR = getHyroxPersonalRecord('BURPEE_BROAD_JUMP_80M')?.time_seconds || 215;
+    const rowPR = getHyroxPersonalRecord('ROW_1000M')?.time_seconds || 220;
+    const farmersPR = getHyroxPersonalRecord('FARMERS_CARRY_200M')?.time_seconds || 105;
+    const lungesPR = getHyroxPersonalRecord('SANDBAG_LUNGES_100M')?.time_seconds || 235;
+    const wallballsPR = getHyroxPersonalRecord('WALL_BALLS')?.time_seconds || 245;
+
+    const stationSum = skiergPR + sledPushPR + sledPullPR + burpeePR + rowPR + farmersPR + lungesPR + wallballsPR;
+    return (runPR * 8) + stationSum + 400; // 400s Roxzone transitions
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -927,6 +1144,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addHyroxLog,
         deleteHyroxLog,
         getHyroxPersonalRecord,
+        rivals,
+        addRivalByCode,
+        removeRival,
+        athleteCode,
+        setAthleteCode,
+        getUserStrength1RM,
+        getUserWeeklyTonnage,
+        getUserEstimatedHyroxTime,
         startWorkoutFromTemplate,
         exportDataJSON,
         importDataJSON,
@@ -951,3 +1176,4 @@ export function useApp() {
   }
   return context;
 }
+

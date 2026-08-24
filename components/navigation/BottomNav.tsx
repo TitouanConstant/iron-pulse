@@ -9,7 +9,8 @@ import {
   Dumbbell, 
   Flame, 
   UtensilsCrossed, 
-  PlayCircle 
+  PlayCircle, 
+  Swords 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -39,10 +40,16 @@ export default function BottomNav() {
       badge: activeWorkout ? `${activeWorkout.sets.filter(s => s.is_completed).length}/${activeWorkout.sets.length}` : undefined,
     },
     {
-      label: 'Hyrox 2027',
+      label: 'Hyrox',
       href: '/hyrox',
       icon: Flame,
       active: pathname.startsWith('/hyrox'),
+    },
+    {
+      label: 'Défis',
+      href: '/rivals',
+      icon: Swords,
+      active: pathname.startsWith('/rivals'),
     },
     {
       label: 'Nutrition',

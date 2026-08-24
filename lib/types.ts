@@ -63,23 +63,51 @@ export interface UserProfile {
   id: string;
   email?: string;
   full_name: string;
+  athlete_code?: string; // Shareable friend code (e.g. "PULSE-8X92")
   avatar_url?: string;
   gender: Gender;
   birth_date?: string;
   age: number;
   height_cm: number;
   current_weight_kg?: number;
+  target_weight_kg?: number;
   activity_level: ActivityLevel;
   goal: FitnessGoal;
   formula: BMRFormula;
-  target_calories: number;
-  target_protein_g: number;
-  target_carbs_g: number;
-  target_fat_g: number;
+  target_calories?: number;
+  target_protein_g?: number;
+  target_carbs_g?: number;
+  target_fat_g?: number;
   hyrox_division: HyroxDivision;
-  hyrox_target_date: string; // ISO date '2027-04-17'
-  created_at?: string;
-  updated_at?: string;
+  hyrox_target_date: string; // "2027-04-17"
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RivalAthlete {
+  id: string;
+  athlete_code: string;
+  full_name: string;
+  avatar_url?: string;
+  division: HyroxDivision;
+  weight_kg: number;
+  height_cm: number;
+  goal: FitnessGoal;
+  bio?: string;
+  added_at: string;
+  stats: {
+    weekly_tonnage_kg: number;
+    workouts_this_month: number;
+    estimated_hyrox_time_seconds: number;
+    hyrox_prs: Partial<Record<HyroxStationType, number>>; // Station -> PR in seconds
+    strength_1rm: {
+      bench_press_kg: number;
+      back_squat_kg: number;
+      deadlift_kg: number;
+      overhead_press_kg: number;
+      pull_ups_reps: number;
+    };
+  };
 }
 
 export interface Exercise {

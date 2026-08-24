@@ -11,6 +11,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   full_name text,
+  athlete_code text unique,
   avatar_url text,
   gender text check (gender in ('male', 'female', 'other')) default 'male',
   birth_date date,

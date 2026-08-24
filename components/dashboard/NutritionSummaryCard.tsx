@@ -55,15 +55,15 @@ export default function NutritionSummaryCard() {
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-slate-900/60 rounded-xl p-2.5 border border-slate-800 text-center">
           <div className="text-[10px] font-bold text-rose-400 uppercase">Protéines</div>
-          <div className="text-base font-black text-white font-mono">{profile.target_protein_g}g</div>
+          <div className="text-base font-black text-white font-mono">{profile.target_protein_g ?? 160}g</div>
           <div className="text-[10px] text-slate-400">
-            {profile.current_weight_kg ? `${(profile.target_protein_g / profile.current_weight_kg).toFixed(1)}g/kg` : '2.1g/kg'}
+            {profile.current_weight_kg && profile.target_protein_g ? `${(profile.target_protein_g / profile.current_weight_kg).toFixed(1)}g/kg` : '2.1g/kg'}
           </div>
         </div>
 
         <div className="bg-slate-900/60 rounded-xl p-2.5 border border-slate-800 text-center">
           <div className="text-[10px] font-bold text-amber-400 uppercase">Glucides</div>
-          <div className="text-base font-black text-white font-mono">{profile.target_carbs_g}g</div>
+          <div className="text-base font-black text-white font-mono">{profile.target_carbs_g ?? 260}g</div>
           <div className="text-[10px] text-slate-400">Énergie & Glycogène</div>
         </div>
 

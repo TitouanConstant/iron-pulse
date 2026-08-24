@@ -14,13 +14,17 @@ export default function MacroGoalCard() {
     updateProfile({ goal });
   };
 
-  const totalCal = profile.target_calories;
-  const proteinCal = profile.target_protein_g * 4;
-  const carbsCal = profile.target_carbs_g * 4;
-  const fatCal = profile.target_fat_g * 9;
+  const totalCal = profile.target_calories ?? 2500;
+  const targetProtein = profile.target_protein_g ?? 160;
+  const targetCarbs = profile.target_carbs_g ?? 260;
+  const targetFat = profile.target_fat_g ?? 70;
 
-  const proteinPct = Math.round((proteinCal / totalCal) * 100);
-  const fatPct = Math.round((fatCal / totalCal) * 100);
+  const proteinCal = targetProtein * 4;
+  const carbsCal = targetCarbs * 4;
+  const fatCal = targetFat * 9;
+
+  const proteinPct = Math.round((proteinCal / totalCal) * 100) || 25;
+  const fatPct = Math.round((fatCal / totalCal) * 100) || 25;
   const carbsPct = Math.max(0, 100 - (proteinPct + fatPct));
 
   return (
@@ -46,7 +50,7 @@ export default function MacroGoalCard() {
               type="button"
               onClick={() => handleSelectGoal(g)}
               className={cn(
-                'p-3 rounded-2xl border text-left transition-all',
+                'p-3 rounded-2xl border text-left transition-all active:scale-95',
                 isSelected
                   ? 'bg-amber-400/20 border-amber-400 text-amber-300 shadow-md shadow-amber-500/15'
                   : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-slate-800'
@@ -64,7 +68,7 @@ export default function MacroGoalCard() {
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-slate-300">Cible Calorique Quotidienne</span>
           <div className="text-xl font-black text-amber-400 font-mono">
-            {profile.target_calories} <span className="text-xs font-normal text-slate-400">kcal</span>
+            {totalCal} <span className="text-xs font-normal text-slate-400">kcal</span>
           </div>
         </div>
 
@@ -81,7 +85,7 @@ export default function MacroGoalCard() {
           <div className="bg-slate-800/80 rounded-xl p-2.5 border border-slate-700">
             <span className="text-[10px] font-bold text-rose-400 uppercase">Protéines</span>
             <div className="text-lg font-black text-white font-mono mt-0.5">
-              {profile.target_protein_g}g
+              {targetProtein}g
             </div>
             <div className="text-[10px] text-slate-400">{proteinPct}% ({proteinCal} kcal)</div>
           </div>
@@ -90,7 +94,7 @@ export default function MacroGoalCard() {
           <div className="bg-slate-800/80 rounded-xl p-2.5 border border-slate-700">
             <span className="text-[10px] font-bold text-amber-400 uppercase">Glucides</span>
             <div className="text-lg font-black text-white font-mono mt-0.5">
-              {profile.target_carbs_g}g
+              {targetCarbs}g
             </div>
             <div className="text-[10px] text-slate-400">{carbsPct}% ({carbsCal} kcal)</div>
           </div>
@@ -99,7 +103,7 @@ export default function MacroGoalCard() {
           <div className="bg-slate-800/80 rounded-xl p-2.5 border border-slate-700">
             <span className="text-[10px] font-bold text-cyan-400 uppercase">Lipides</span>
             <div className="text-lg font-black text-white font-mono mt-0.5">
-              {profile.target_fat_g}g
+              {targetFat}g
             </div>
             <div className="text-[10px] text-slate-400">{fatPct}% ({fatCal} kcal)</div>
           </div>
